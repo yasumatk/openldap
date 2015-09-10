@@ -35,6 +35,7 @@ enum {
 	WT_DIRECTORY = 1,
 	WT_CONFIG,
 	WT_INDEX,
+	WT_MODE,
 };
 
 static ConfigTable wtcfg[] = {
@@ -53,17 +54,21 @@ static ConfigTable wtcfg[] = {
 	  "DESC 'Attribute index parameters' "
 	  "EQUALITY caseIgnoreMatch "
 	  "SYNTAX OMsDirectoryString )", NULL, NULL },
+	{ "mode", "mode", 2, 2, 0, ARG_MAGIC|WT_MODE,
+	  wt_cf_gen, "( OLcfgDbAt:0.3 NAME 'olcDbMode' "
+	  "DESC 'Unix permissions of database files' "
+	  "SYNTAX OMsDirectoryString SINGLE-VALUE )", NULL, NULL },
 	{ NULL, NULL, 0, 0, 0, ARG_IGNORED,
 		NULL, NULL, NULL, NULL }
 };
 
 static ConfigOCs wtocs[] = {
-	{ "( OLcfgDbOc:9.1 "
+	{ "( OLcfgDbOc:13.1 "
 	  "NAME 'olcWtConfig' "
 	  "DESC 'Wt backend configuration' "
 	  "SUP olcDatabaseConfig "
 	  "MUST olcDbDirectory "
-	  "MAY ( olcWtConfig $ olcDbIndex ) )",
+	  "MAY ( olcWtConfig $ olcDbIndex $ olcDbMode ) )",
 	  Cft_Database, wtcfg },
 	{ NULL, 0, NULL }
 };
@@ -73,6 +78,7 @@ static void *
 wt_online_index( void *ctx, void *arg )
 {
 	// Not implement yet
+	return NULL;
 }
 
 /* Cleanup loose ends after Modify completes */
@@ -91,18 +97,37 @@ wt_cf_gen( ConfigArgs *c )
 
 	if(c->op == SLAP_CONFIG_EMIT) {
 		rc = 0;
-		// not implement yet
+		switch( c->type ) {
+		case WT_DIRECTORY:
+			if ( wi->wi_home ) {
+				c->value_string = ch_strdup( wi->wi_home );
+			} else {
+				rc = 1;
+			}
+			break;
+		case WT_INDEX:
+			wt_attr_index_unparse( wi, &c->rvalue_vals );
+			if ( !c->rvalue_vals ) rc = 1;
+			break;
+		}
 		return rc;
 	}
 
 	switch( c->type ) {
 	case WT_DIRECTORY:
-		ch_free( wi->wi_dbenv_home );
-		wi->wi_dbenv_home = c->value_string;
+		ch_free( wi->wi_home );
+		wi->wi_home = c->value_string;
 		break;
 	case WT_CONFIG:
-		ch_free( wi->wi_dbenv_config );
-		wi->wi_dbenv_config = c->value_string;
+		if(strlen(wi->wi_config) + 1 + strlen(c->value_string) > WT_CONFIG_MAX){
+			fprintf( stderr, "%s: "
+					 "\"wtconfig\" are too long. Increase WT_CONFIG_MAX or you may realloc the buffer.\n",
+					 c->log );
+			return 1;
+		}
+		/* size of wi->wi_config is WT_CONFIG_MAX + 1, it's guaranteed with NUL-terminate. */
+		strcat(wi->wi_config, ",");
+		strcat(wi->wi_config, c->value_string);
 		break;
 
 	case WT_INDEX:

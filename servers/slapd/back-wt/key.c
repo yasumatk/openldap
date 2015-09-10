@@ -24,7 +24,6 @@
 #include <stdio.h>
 #include <ac/string.h>
 #include "back-wt.h"
-#include "config.h"
 #include "idl.h"
 
 /* read a key */
@@ -43,6 +42,8 @@ wt_key_read(
 	int exact;
 	WT_ITEM key2;
 	ID id;
+	int comp;
+	long scanned = 0;
 
 	Debug( LDAP_DEBUG_TRACE, "=> key_read\n" );
 
@@ -58,8 +59,8 @@ wt_key_read(
 			   wiredtiger_strerror(rc), rc );
 		goto done;
 	}
-
 	do {
+		scanned++;
 		rc = cursor->get_key(cursor, &key2, &id);
 		if( rc ){
 			Debug( LDAP_DEBUG_ANY,
@@ -68,8 +69,12 @@ wt_key_read(
 				   wiredtiger_strerror(rc), rc );
 			break;
 		}
-
-		if (key.size != key2.size || memcmp(key.data, key2.data, key.size)) {
+		comp = 0;
+		if (key.size != key2.size ||
+			(comp = memcmp(key2.data, key.data, key.size))) {
+			if(comp > 0){
+				break;
+			}
 			if(exact < 0){
 				rc = cursor->next(cursor);
 				if (rc) {
@@ -85,17 +90,17 @@ wt_key_read(
 		rc = cursor->next(cursor);
 	} while(rc == 0);
 
-	if (rc == WT_NOTFOUND ) {
+	if ( rc == WT_NOTFOUND && exact == 0 ) {
 		rc = LDAP_SUCCESS;
 	}
 
 done:
 	if( rc != LDAP_SUCCESS ) {
-		Debug( LDAP_DEBUG_TRACE, "<= wt_key_read: failed (%d)\n",
-			   rc );
+		Debug( LDAP_DEBUG_TRACE, "<= wt_key_read: failed (%d) %ld scanned\n",
+			   rc, scanned );
 	} else {
-		Debug( LDAP_DEBUG_TRACE, "<= wt_key_read %ld candidates\n",
-			   (long) WT_IDL_N(ids) );
+		Debug( LDAP_DEBUG_TRACE, "<= wt_key_read %ld candidates %ld scanned\n",
+			   (long) WT_IDL_N(ids), scanned );
 	}
 
 	return rc;
